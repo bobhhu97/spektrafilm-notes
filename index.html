@@ -240,8 +240,8 @@
       </div>
 
       <div class="card" style="margin-top:16px">
-        <div class="card-h"><span class="card-t">换底</span>
-          <span class="card-t" style="font-size:9.5px">Stock → Paper</span>
+        <div class="card-h"><span class="card-t">换底与显影预览</span>
+          <span class="card-t" style="font-size:9.5px">换底后立刻更新</span>
         </div>
         <div class="stock-row">
           <div class="stock-field">
@@ -254,6 +254,12 @@
           </div>
         </div>
         <div id="stockNote" class="sel-note"></div>
+
+        <div class="devstrip-head">
+          <span>同一张图，只改显影</span>
+          <span class="pill" id="devTag">Push 0</span>
+        </div>
+        <div class="strip-3" id="devStrip"></div>
       </div>
 
       <div class="card" style="margin-top:16px">
@@ -287,11 +293,6 @@
           EV 决定场景落在曲线哪一段。Gamma 只拉伸斜率。Push/Pull 按显影时间比例同时改斜率和有效感光度：
           推上去暗部更早离开趾部，亮部也更早撞进肩部，高光就糊成一块。
         </p>
-      </div>
-
-      <div class="card" style="margin-top:16px">
-        <div class="card-h"><span class="card-t">同一张图，只改显影</span><span class="card-t" id="devTag">Push 0</span></div>
-        <div class="strip-3" id="devStrip"></div>
       </div>
     </div>
   </div>

@@ -708,28 +708,34 @@ function initCurve() {
   /* 三联图：同一张图，不同 push */
   /* 三联图是参考图，不是主反馈。复用 DOM，且拖动停下后再更新 */
   let stripTimer = 0;
-  function buildStripDOM() {
-    const host = $('#devStrip'); if (!host || host.dataset.built) return;
-    host.innerHTML = [-1, 0, 1].map(p => `
+  function buildStripDOM(span) {
+    const host = $('#devStrip'); if (!host) return;
+    host.innerHTML = span.map((p, i) => `
       <div>
         <canvas class="devthumb" data-push="${p}" style="width:100%;border-radius:8px;border:1px solid var(--line);display:block"></canvas>
-        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--ink-3);margin-top:7px;text-align:center">
-          PUSH ${p > 0 ? '+' + p : p}
+        <div class="devthumb-cap" style="font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:${i === 1 ? 'var(--safelight)' : 'var(--ink-3)'};margin-top:7px;text-align:center">
+          PUSH ${p > 0 ? '+' + p : p}${i === 1 ? ' ◂' : ''}
         </div>
       </div>`).join('');
-    host.dataset.built = '1';
   }
 
   function drawStripNow() {
-    buildStripDOM();
+    /* 三格围绕当前 Push 值展开，这样拖动滑块时预览会跟着动，
+       能直观看到「推得更多会怎样」。停在 0 时就是经典的 -1 / 0 / +1。 */
+    const cur = S.pushVal || 0;
+    const span = [-1, 0, 1].map(o => clamp(+(cur + o).toFixed(1), -2, 2));
+
+    buildStripDOM(span);
     const e = eng();
-    $$('.devthumb').forEach(c => {
-      const p = +c.dataset.push;
+    $$('.devthumb').forEach((c, i) => {
       const W = 150, H = 94;
       if (c.width !== W) { c.width = W; c.height = H; }
-      c.getContext('2d').putImageData(renderSceneFast(W, H, e, { pushF: p }, 0.55), 0, 0);
+      /* 用全分辨率渲染：150×94 本来就快，且避免 renderSceneFast 的
+         降采样状态在三次连续调用间互相干扰 */
+      c.getContext('2d').putImageData(renderScene(W, H, e, { pushF: span[i] }), 0, 0);
     });
-    $('#devTag').textContent = `Push ${S.pushVal > 0 ? '+' : ''}${fmt(S.pushVal, 1)}`;
+
+    $('#devTag').textContent = `Push ${cur > 0 ? '+' : ''}${fmt(cur, 1)}`;
   }
 
   function drawStrip() {
