@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>spektrafilm OFX 在 DaVinci Resolve 里到底做了什么</title>
+<meta name="description" content="用可视化的方式拆解 spektrafilm OFX 的光谱成像模型：从线性 RGB 到胶片密度、光学印片、颗粒、卤化与扫描，逐站讲透每个参数的位置与作用。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0b0c'/%3E%3Crect x='7' y='10' width='18' height='12' rx='2' fill='none' stroke='%23e6a33d' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+
+<!-- ============================== TOP BAR ============================== -->
+<header class="topbar" id="topbar">
+  <div class="brand">
+    <img src="icon.png" alt="">
+    <b>spektrafilm</b><span>OFX</span>
+  </div>
+  <div class="topbar-spacer"></div>
+  <a class="tb-link" href="#chain">成像链</a>
+  <a class="tb-link" href="#develop">显影</a>
+  <a class="tb-link" href="#print">印片</a>
+  <a class="tb-link" href="#grain">颗粒</a>
+  <a class="tb-link" href="#resolvemap">落地</a>
+  <a class="tb-link" href="#lab">手感</a>
+  <a class="tb-link" href="#params">参数表</a>
+  <div class="bar-progress" id="barProgress"></div>
+</header>
+
+<!-- ============================== RAIL ============================== -->
+<nav class="rail" id="rail">
+  <a href="#chain" data-s="chain"><span>整条链</span><i></i></a>
+  <a href="#spectrum" data-s="spectrum"><span>光谱</span><i></i></a>
+  <a href="#develop" data-s="develop"><span>胶片</span><i></i></a>
+  <a href="#print" data-s="print"><span>印片</span><i></i></a>
+  <a href="#texture" data-s="texture"><span>质感</span><i></i></a>
+  <a href="#scan" data-s="scan"><span>扫描</span><i></i></a>
+  <a href="#resolvemap" data-s="resolvemap"><span>落地</span><i></i></a>
+  <a href="#lab" data-s="lab"><span>手感</span><i></i></a>
+  <a href="#params" data-s="params"><span>参数</span><i></i></a>
+</nav>
+
+<!-- ============================== HERO ============================== -->
+<section class="hero">
+  <div class="hero-vis"><canvas id="heroCanvas"></canvas></div>
+  <div class="hero-inner">
+    <img class="hero-logo" src="icon.png" alt="spektrafilm">
+    <h1>它不套 LUT<br>它把你的像素<br>放进一台<em>数字冲印机</em></h1>
+    <p class="hero-sub">
+      spektrafilm 的每个滑块，对应的都是化学冲印流程里的一个具体动作：曝光、显影、印片、定影、扫描。
+      这页跟着一颗像素走完全程。你会看到它先变成一层密度，被光穿过，最后回到屏幕。
+      看完这条链，参数就不再是碰运气。
+    </p>
+    <div class="hero-meta">
+      <span class="chip hot">交互式拆解</span>
+      <span class="chip">真实光谱数据</span>
+      <span class="chip">8 个阶段</span>
+      <span class="chip">约 15 分钟</span>
+    </div>
+  </div>
+  <div class="hero-foot">
+    <div class="scroll-hint"><span>SCROLL</span><i></i></div>
+  </div>
+</section>
+
+<main>
+
+<!-- ============================== 01 CHAIN ============================== -->
+<section class="sec" id="chain">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-num">01</div>
+      <div>
+        <h2 class="sec-title">先看清整条流水线，<em>再谈参数</em></h2>
+        <p class="sec-lede">
+          参数面板被切成了十几个分组，但它们在时间上是串行的。点开任意一站，
+          看它接收什么、交出什么，以及哪些滑块真正作用在这里。
+        </p>
+      </div>
+    </div>
+
+    <div class="chain rv" id="chainStrip" role="tablist"></div>
+    <div class="station-body rv" id="stationBody" data-d="1"></div>
+
+    <div class="split" style="margin-top:44px">
+      <div class="prose rv">
+        <h3 class="sub">它换掉的不是颜色，是记录方式</h3>
+        <p>
+          普通 LUT 把一个 RGB 三元组映射成另一个三元组。spektrafilm 把你的 RGB 当成场景光的一条线索，
+          先还出一条连续光谱，让光谱穿过胶片的三层乳剂得到染料密度，
+          再用光穿过这层密度印到相纸上，最后扫回 RGB。
+        </p>
+        <p>
+          所以中间流动的是物理量，不是颜色：
+          <code>曝光 → log 曝光 → CMY 密度 → 光谱密度 → 透射光 → 显示 RGB</code>。
+          同样一个「+1EV」，在 Film 组和 Print 组的观感完全不同，因为插入的位置不同。
+        </p>
+        <p>
+          密度衡量的是挡光能力，不是 0 到 1 的亮度。密度加 1.0，透过率变成原来的十分之一。
+          胶片的 toe、shoulder 和反差，说到底都是这条密度曲线在不同曝光处的斜率。
+        </p>
+      </div>
+
+      <div class="card rv" data-d="2">
+        <div class="card-h"><span class="card-t">Beer–Lambert 关系</span></div>
+        <div class="formula">
+          <span class="v">L</span><sub>out</sub>(λ) <span class="op">=</span>
+          <span class="v">L</span><sub>in</sub>(λ) <span class="op">·</span> 10<sup><span class="op">−</span><span class="c">D</span>(λ)</sup>
+        </div>
+        <p class="fine" style="margin-top:14px">
+          整条链反复用这一个式子。密度是对数的，所以叠加密度等于相乘透过率。
+        </p>
+        <div class="ctrls" style="margin-top:16px">
+          <div class="ctrl">
+            <label>光密度 D <em>density</em></label>
+            <output id="oDen">1.00</output>
+            <input type="range" id="sDen" min="0" max="4" step="0.01" value="1">
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:16px">
+          <div id="denSwatch" style="flex:1;height:56px;border-radius:9px;border:1px solid var(--line-2);background:#808080"></div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--ink-2);line-height:1.9;min-width:120px">
+            <div>透过率 <b id="oTrans" style="color:var(--safelight)">10.0%</b></div>
+            <div>损失 <b id="oLoss" style="color:var(--ink-3)">1.00 EV</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 02 SPECTRUM ============================== -->
+<section class="sec" id="spectrum">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-num">02</div>
+      <div>
+        <h2 class="sec-title">第一站：RGB 不是颜色，<em>是三个线索</em></h2>
+        <p class="sec-lede">
+          乳剂看不见「R 通道」，它只对波长有反应。插件必须先猜：什么样的连续光谱会让相机给出这个 RGB。
+          这是整条链唯一有歧义的地方，也是 RGB to Raw 三个选项存在的原因。
+        </p>
+      </div>
+    </div>
+
+    <div class="rv">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:18px 20px 0">
+          <div class="card-h" style="margin-bottom:10px">
+            <span class="card-t">同一 RGB，不同光谱</span>
+            <div class="seg" id="specSeg">
+              <button data-p="0,0.18,0.18" >青灰</button>
+              <button data-p="0.55,0.18,0.06">暖橙</button>
+              <button data-p="0.10,0.30,0.55">冷蓝</button>
+              <button data-p="0.28,0.42,0.10">橄榄</button>
+            </div>
+          </div>
+        </div>
+        <div style="padding:0 8px">
+          <div class="plot"><canvas id="cSpec"></canvas>
+            <div class="plot-tip" id="tipSpec"></div>
+          </div>
+        </div>
+        <div style="padding:10px 20px 18px">
+          <div class="wl-axis"><div class="bar"></div></div>
+          <div class="wl-ticks"><span>380</span><span>480</span><span>580</span><span>680</span><span>780 nm</span></div>
+          <div class="plot-legend">
+            <span><i style="background:#38c9d6"></i>重建光谱 S(λ)</span>
+            <span><i style="background:#e6a33d"></i>胶片层敏感度 Q(λ)</span>
+            <span><i style="background:rgba(234,231,224,.4)"></i>扫描光源</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ctrl-panel">
+        <div class="card">
+          <div class="card-h"><span class="card-t">上采样算法</span>
+            <span class="card-t" style="font-size:9.5px">Film · RGB to Raw</span>
+          </div>
+          <div class="seg" id="methodSeg" style="margin-bottom:14px">
+            <button data-m="0" class="on">Hanatos 2026</button>
+            <button data-m="1">Hanatos 2025</button>
+            <button data-m="2">Mallett 2019</button>
+          </div>
+          <div id="methodBody" class="seg-body"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><span class="card-t">为什么非要还原光谱</span></div>
+          <p class="body-p">
+            三层乳剂的感光范围互相重叠。红光除了让红层感光，也会刺激绿层。
+            用 3×3 矩阵直接近似，饱和色和宽色域素材会崩；先还原成光谱，
+            再拿真实的感光曲线积分，这种串色是算出来的，不是调出来的。
+          </p>
+          <p class="body-p">
+            所以 <code>RGB to Raw</code> 放在 Film 组最上面：它定下了整条链的起点假设。
+            默认不用动，Hanatos 2026 走可见轨迹 LUT，宽色域最稳。
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 03 DEVELOP ============================== -->
+<section class="sec" id="develop">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-num">03</div>
+      <div>
+        <h2 class="sec-title">显影：把曝光变成<em>染料密度</em></h2>
+        <p class="sec-lede">
+          「胶片味」主要长在这一步。厂商公布的特性曲线描述 log 曝光到密度的关系，
+          趾部、肩部、中间调斜率都在里面。下面这条是真实的 Kodak Portra 400 数据。
+        </p>
+      </div>
+    </div>
+
+    <div class="rv">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:18px 20px 6px">
+          <div class="card-h" style="margin-bottom:4px">
+            <span class="card-t">Portra 400 特性曲线 · log 曝光 → 密度</span>
+            <span class="pill" id="devReadout">D = 0.62</span>
+          </div>
+        </div>
+        <div style="padding:0 8px">
+          <div class="plot"><canvas id="cCurve"></canvas>
+            <div class="plot-tip" id="tipCurve"></div>
+          </div>
+        </div>
+        <div style="padding:12px 20px 18px">
+          <div class="plot-legend">
+            <span><i style="background:#ef5b4b"></i>R 层</span>
+            <span><i style="background:#7bcf92"></i>G 层</span>
+            <span><i style="background:#4d8df0"></i>B 层</span>
+            <span><i style="background:rgba(230,163,61,.9)"></i>当前工作点</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-h"><span class="card-t">换底</span>
+          <span class="card-t" style="font-size:9.5px">Stock → Paper</span>
+        </div>
+        <div class="stock-row">
+          <div class="stock-field">
+            <label>负片</label>
+            <select id="selFilm" class="selbox"></select>
+          </div>
+          <div class="stock-field">
+            <label>相纸</label>
+            <select id="selPaper" class="selbox"></select>
+          </div>
+        </div>
+        <div id="stockNote" class="sel-note"></div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-h"><span class="card-t">Film 组</span>
+          <span class="card-t" style="font-size:9.5px">显影时间 ECN-2 <span class="pill acc" id="devSeconds">180 s</span></span>
+        </div>
+        <div class="slider-3">
+          <div class="ctrl">
+            <label>Exposure EV <em>底片曝光</em></label>
+            <output id="oFEV">0.0</output>
+            <input type="range" id="sFEV" min="-2" max="2" step="0.1" value="0">
+          </div>
+          <div class="ctrl">
+            <label>Gamma <em>曲线斜率</em></label>
+            <output id="oFGamma">1.00</output>
+            <input type="range" id="sFGamma" min="0.6" max="1.5" step="0.01" value="1">
+          </div>
+          <div class="ctrl">
+            <label>Push / Pull Stops</label>
+            <output id="oPush">0.0</output>
+            <input type="range" id="sPush" min="-2" max="2" step="0.1" value="0">
+          </div>
+        </div>
+        <div class="devtime">
+          <div id="devBar" class="devtime-bar"><div id="devBarFill"></div></div>
+          <div class="devtime-scale">
+            <span>150s 拉一档</span><span>180s 正常</span><span>220s 推一档</span><span>280s 推两档</span>
+          </div>
+        </div>
+        <p class="fine">
+          EV 决定场景落在曲线哪一段。Gamma 只拉伸斜率。Push/Pull 按显影时间比例同时改斜率和有效感光度：
+          推上去暗部更早离开趾部，亮部也更早撞进肩部，高光就糊成一块。
+        </p>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-h"><span class="card-t">同一张图，只改显影</span><span class="card-t" id="devTag">Push 0</span></div>
+        <div class="strip-3" id="devStrip"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 04 PRINT ============================== -->
+<section class="sec" id="print">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-num">04</div>
+      <div>
+        <h2 class="sec-title">印片：负片只是一块<em>滤光片</em></h2>
+        <p class="sec-lede">
+          负片显影完并不是「有颜色」了。它本身是橙褐色的，真正的身份是一个可变的减光器。
+          放大机的光穿过它照到相纸上，才有你看到的图像。调色的大部分动作都发生在这一站。
+        </p>
+      </div>
+    </div>
+
+    <div class="rv">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:18px 20px 0">
+          <div class="card-h" style="margin-bottom:8px">
+            <span class="card-t">印片曝光 · 光谱透射</span>
+            <div class="seg on-green" id="printModeSeg">
+              <button data-m="0" class="on">Filtered</button>
+              <button data-m="1">Printer</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="wide-split">
+          <div class="wide-plot">
+            <div class="plot"><canvas id="cPrint"></canvas>
+              <div class="plot-tip" id="tipPrint"></div>
+            </div>
+            <div class="plot-legend" style="padding:12px 20px 16px">
+              <span><i style="background:rgba(234,231,224,.55)"></i>放大机光源 L(λ)</span>
+              <span><i style="background:#4fd0e0"></i>负片透过率 10<sup>−D</sup></span>
+              <span><i style="background:#7bcf92"></i>相纸敏感度</span>
+            </div>
+          </div>
+          <div class="wide-side">
+            <div class="card-t" style="margin-bottom:10px">负片密度</div>
+            <div class="cmy-row" id="cmyBars"></div>
+            <div class="card-t" style="margin:16px 0 10px">相纸密度</div>
+            <div class="cmy-row" id="cmyBars2"></div>
+          </div>
+        </div>
+
+        <div class="wide-foot">
+          <div class="card-t" style="margin-bottom:10px">拖动分割线，看这一组参数改了什么</div>
+          <div class="beforeafter" id="printBA" style="border-radius:9px">
+            <canvas id="cPrintImg"></canvas>
+            <div class="ba-handle" id="printHandle" style="left:50%"></div>
+            <div class="ba-tag" style="left:10px">中性（全部归零）</div>
+            <div class="ba-tag" style="right:10px">当前设置</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ctrl-panel">
+        <div class="card">
+          <div class="card-h"><span class="card-t">色彩</span></div>
+          <div class="ctrls">
+            <div class="ctrl">
+              <label>C Filter <em>挡红 → 偏暖</em></label><output id="oC">0</output>
+              <input type="range" id="sC" min="-60" max="60" step="1" value="0">
+            </div>
+            <div class="ctrl">
+              <label>M Filter Shift <em>挡绿 → 偏绿</em></label><output id="oM">0</output>
+              <input type="range" id="sM" min="-60" max="60" step="1" value="0">
+            </div>
+            <div class="ctrl">
+              <label>Y Filter Shift <em>挡蓝 → 偏蓝</em></label><output id="oY">0</output>
+              <input type="range" id="sY" min="-60" max="60" step="1" value="0">
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><span class="card-t">曝光与塑形</span></div>
+          <div class="ctrls">
+            <div class="ctrl">
+              <label>Exposure EV <em>印片曝光</em></label><output id="oPEV">0.0</output>
+              <input type="range" id="sPEV" min="-1.5" max="1.5" step="0.05" value="0">
+            </div>
+            <div class="ctrl">
+              <label>Preflash <em>预闪</em></label><output id="oPF">0.00</output>
+              <input type="range" id="sPF" min="0" max="0.6" step="0.01" value="0">
+            </div>
+            <div class="ctrl">
+              <label>Shadow Shape</label><output id="oSh">0.0</output>
+              <input type="range" id="sSh" min="-1" max="1" step="0.05" value="0">
+            </div>
+            <div class="ctrl">
+              <label>Highlight Shape</label><output id="oHi">0.0</output>
+              <input type="range" id="sHi" min="-1" max="1" step="0.05" value="0">
+            </div>
+          </div>
+          <button class="reset-btn" id="btnBal">回到中性平衡</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-grid-3 rv">
+      <div class="mini">
+        <div class="mini-h">滤色为什么是反的</div>
+        <p>
+          青色滤片挡红光，相纸的红层就欠曝。因为负片本身是反的，最终画面反而<b>偏暖</b>。
+          三个滤色滑块同一套规则：滤片挡什么，画面就偏什么。
+        </p>
+      </div>
+      <div class="mini">
+        <div class="mini-h">Printer Points</div>
+        <p>
+          另一种计时方式，单位是 1/12 档：<code>2^(points/12)</code>。数值变大，该通道曝光变多。
+          Gang 让三通道取同一值，Group 保持偏移一起推。
+        </p>
+      </div>
+      <div class="mini">
+        <div class="mini-h">Preflash 恢复的是高光</div>
+        <p>
+          相纸的趾部在高光端，曝光少就是纸白。所以预闪撑开的是<b>高光层次</b>，把纯白柔化下来。
+          相纸和负片的 toe 在相反的两头。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 05 TEXTURE ============================== -->
+<section class="sec" id="texture">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-num">05</div>
+      <div>
+        <h2 class="sec-title">质感：颗粒、光晕、扩散，<em>全都长在密度里</em></h2>
+        <p class="sec-lede">
+          这一节最能把 spektrafilm 与其他胶片模拟区分开。颗粒不是盖在成片上的噪声层，
+          它生成在密度空间里，跟着光一起经过印片和扫描。所以它会被相纸压平，也会被扫描仪锐化。
+        </p>
+      </div>
+    </div>
+
+    <div class="rv" style="margin-bottom:26px">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:16px 20px">
+          <div class="card-h" style="margin-bottom:0">
+            <span class="card-t">纹理实验室</span>
+            <div class="seg" id="texSeg">
+              <button data-t="grain" class="on">颗粒</button>
+              <button data-t="halation">卤化</button>
+              <button data-t="diffusion">扩散</button>
+              <button data-t="all">全部叠加</button>
+            </div>
+          </div>
+        </div>
+        <div class="beforeafter" id="baWrap">
+          <canvas id="cTex"></canvas>
+          <div class="ba-handle" id="baHandle" style="left:50%"></div>
+          <div class="ba-tag" style="left:14px">OFF</div>
+          <div class="ba-tag" style="right:14px" id="baTagOn">ON</div>
+        </div>
+        <div style="padding:16px 20px;display:flex;gap:26px;flex-wrap:wrap;border-top:1px solid var(--line)">
+          <div class="ctrl" style="flex:1;min-width:190px">
+            <label id="texLblA">Amount</label><output id="oTexA">0.60</output>
+            <input type="range" id="sTexA" min="0" max="1" step="0.01" value="0.6">
+          </div>
+          <div class="ctrl" style="flex:1;min-width:190px">
+            <label id="texLblB">Scale</label><output id="oTexB">1.00</output>
+            <input type="range" id="sTexB" min="0.2" max="3" step="0.01" value="1">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="rv">
+        <h3 class="sub">颗粒是数出来的</h3>
+        <div class="prose">
+          <p>
+            颗粒来自卤化银粒子的实际分布。插件先算这个像素在胶片平面上覆盖多大面积，
+            除以单颗粒子的平均面积，得到候选粒子数；再用密度推出每颗被显影的概率，
+            最后统计真正显影了多少颗。
+          </p>
+          <p>
+            中间调颗粒最明显，纯黑纯白处几乎消失，因为概率 p = D / D<sub>max</sub>
+            在两端逼近 0 或 1，方差自然变小。这是统计的必然，不是画上去的渐变遮罩。
+          </p>
+        </div>
+        <div class="formula" style="margin-top:20px">
+          n <span class="op">=</span> A<sub>pixel</sub> <span class="op">/</span> A<sub>particle</sub>
+          &nbsp;&nbsp;<span class="op">·</span>&nbsp;&nbsp;
+          p <span class="op">=</span> <span class="c">clamp</span>(D / D<sub>max</sub>, 0, 1)
+          <br>
+          D<sub>grain</sub> <span class="op">=</span> N<sub>developed</sub> <span class="op">·</span> D<sub>max</sub> <span class="op">/</span> n
+          <small>N<sub>developed</sub> 服从二项分布；插件用高斯近似 + 种子哈希实现，可重复、可动画。</small>
+        </div>
+      </div>
+
+      <div class="rv" data-d="1">
+        <h3 class="sub">三种颗粒模型</h3>
+        <div class="seg" id="grainModelSeg" style="margin-bottom:16px">
+          <button data-g="0" class="on">Preview</button>
+          <button data-g="1">Production</button>
+          <button data-g="2">Grain Synthesis</button>
+        </div>
+        <div id="grainModelBody" style="font-size:13.5px;color:var(--ink-2);line-height:1.72"></div>
+
+        <div class="card" style="margin-top:20px">
+          <div class="card-h"><span class="card-t">画幅 → 颗粒大小</span></div>
+          <p style="font-size:13px;color:var(--ink-2);margin-bottom:14px;line-height:1.7">
+            画幅改的是胶片平面的物理尺寸，不是颗粒生成本身。1080p 和 4K 采样的是同一张数字底片，
+            只是采样密度不同，结果因此几乎一致。
+          </p>
+          <div class="seg" id="fmtSeg">
+            <button data-f="0">8mm</button>
+            <button data-f="2">16mm</button>
+            <button data-f="4" class="on">35mm</button>
+            <button data-f="7">65/70</button>
+          </div>
+          <div id="fmtNote" style="margin-top:14px;font-size:12.5px;color:var(--ink-3);font-family:var(--mono);letter-spacing:.04em"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid g2 rv" style="margin-top:40px">
+      <div class="card">
+        <div class="card-h"><span class="card-t">卤化 Halation</span></div>
+        <div class="plot" style="margin-bottom:14px"><canvas id="cHal" style="height:120px"></canvas></div>
+        <p style="font-size:13.5px;color:var(--ink-2);line-height:1.7">
+          光穿过乳剂后打到片基背面，反射回来又曝光一次。红光敏感层在最里面，
+          回来的光走的路最长，衰减之后剩下的主要是红光，所以卤化是橙红色的光晕，不是白色泛光。
+        </p>
+        <p class="fine">
+          插件里 <code>Strength RGB</code> 的默认值是 0.05 / 0.015 / 0：红远大于绿，蓝几乎为零。
+          这组数字是物理结论，不是随手设的。
+        </p>
+        <div class="ctrls" style="margin-top:16px">
+          <div class="ctrl"><label>Amount</label><output id="oHal">1.00</output>
+            <input type="range" id="sHal" min="0" max="2" step="0.02" value="1"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><span class="card-t">扩散 Diffusion</span></div>
+        <div class="plot" style="margin-bottom:14px"><canvas id="cDiff" style="height:120px"></canvas></div>
+        <p style="font-size:13.5px;color:var(--ink-2);line-height:1.7">
+          相机扩散发生在胶片曝光之前，相当于镜头前加滤镜；印片扩散发生在负片已经存在之后。
+          前者改变底片收到的光，后者只改变印出来的样子，所以两者不能互换。
+        </p>
+        <div class="ctrls" style="margin-top:16px">
+          <div class="ctrl"><label>Strength</label><output id="oDiff">0.50</output>
+            <input type="range" id="sDiff" min="0" max="2" step="0.02" value="0.5"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 06 SCAN ============================== -->
+<section class="sec" id="scan">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-num">06</div>
+      <div>
+        <h2 class="sec-title">回家：从密度<em>扫回 RGB</em></h2>
+        <p class="sec-lede">
+          最后一站最容易被忽略，却决定了「像不像扫描件」。扫描仪用一束光穿过相纸，
+          积分 CIE 三刺激值，再转到输出色域。这一站的参数专门用来造那些真实的不完美。
+        </p>
+      </div>
+    </div>
+
+    <div class="rv">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:18px 20px 0">
+          <div class="card-h" style="margin-bottom:8px">
+            <span class="card-t">密度 → XYZ → RGB</span>
+            <span class="pill" id="scanTag">Scanner OFF</span>
+          </div>
+        </div>
+        <div style="padding:0 8px">
+          <div class="plot"><canvas id="cScan"></canvas></div>
+        </div>
+        <div style="padding:14px 20px 18px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+            <span class="card-t">扫描结果预览</span>
+            <span class="card-t" style="font-size:9px">片窗局部放大 ≈ 2mm</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px" id="scanStrip"></div>
+        </div>
+      </div>
+
+      <div class="ctrl-panel">
+        <div class="card">
+          <div class="card-h">
+            <span class="card-t">扫描仪组</span>
+            <label class="toggle"><input type="checkbox" id="tScan"><span class="sw"></span><span class="lbl">启用</span></label>
+          </div>
+          <div class="ctrls">
+            <div class="ctrl"><label>Glare Percent <em>光晕污染</em></label><output id="oGl">3%</output>
+              <input type="range" id="sGl" min="0" max="20" step="0.5" value="3"></div>
+            <div class="ctrl"><label>MTF50 lp/mm <em>解析力</em></label><output id="oMtf">60</output>
+              <input type="range" id="sMtf" min="0" max="150" step="1" value="60"></div>
+            <div class="ctrl"><label>Unsharp Amount <em>扫描锐化</em></label><output id="oUs">0.70</output>
+              <input type="range" id="sUs" min="0" max="2" step="0.02" value="0.7"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><span class="card-t">输出角色</span></div>
+          <div class="seg" id="roleSeg" style="margin-bottom:14px">
+            <button data-r="0" class="on">Display SDR</button>
+            <button data-r="1">Display HDR</button>
+            <button data-r="2">RCM/ACES</button>
+          </div>
+          <div id="roleBody" class="role-body"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 07 RESOLVE MAP ============================== -->
+<section class="sec" id="resolvemap">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-num">07</div>
+      <div>
+        <h2 class="sec-title">放进 Resolve 的<em>节点树</em>里</h2>
+        <p class="sec-lede">
+          插件放在哪个节点，比参数本身更重要。它演的是印片机，所以应该落在技术转换之后、
+          多数镜头平衡之后。
+        </p>
+      </div>
+    </div>
+
+    <div class="rv">
+      <div class="card" style="padding:clamp(18px,2.6vw,30px)">
+        <div class="nodeflow" id="nodeFlow"></div>
+        <div style="margin-top:26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px" id="nodeNotes"></div>
+      </div>
+    </div>
+
+    <div class="note rv">
+      <p class="note-lede">负片的趾部在暗部，相纸的趾部在高光。</p>
+      <p>
+        曝光少的时候，负片密度趋近片基，暗部挤在趾部里；相纸则趋近纸白，高光挤在趾部里。
+        所以 <code>Preflash</code> 作用在纸上，恢复的是高光层次；
+        想让暗部离开趾部得动 <code>Film Exposure EV</code>；
+        只想改暗部曲率而不动端点，用 <code>Shadow Shape</code>。
+      </p>
+    </div>
+
+    <div class="rv" style="margin-top:44px">
+      <h3 class="sub">两种常见的放错位置</h3>
+      <div class="mistake-grid">
+        <div class="mistake">
+          <div class="mistake-h">放在 CST 之后，输出仍设为 Display Out SDR</div>
+          <p>显示变换做了两遍，高光被压两轮。画面发闷但不发黑，很容易误判成「胶片就该这样」。</p>
+        </div>
+        <div class="mistake">
+          <div class="mistake-h">在 spektrafilm 之后再大改曝光</div>
+          <p>胶片响应是非线性的。下游提亮会把已经压进肩部的亮部重新拉起来，得到一片灰雾，不像真的提亮。</p>
+        </div>
+      </div>
+      <div class="rule">
+        spektrafilm 是最后一环，就让它做最终的显示变换；后面还有调色或交付变换，就切到 RCM/ACES。
+        改亮度请回到 Film 或 Print 的 Exposure EV。
+      </div>
+    </div>
+
+    <div class="rv" style="margin-top:40px">
+      <h3 class="sub">想改什么，拧哪一站</h3>
+      <div class="route-grid" id="routeList"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 08 PARAMS ============================== -->
+<section class="sec" id="lab">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-num">08</div>
+      <div>
+        <h2 class="sec-title">手感实验室 · <em>一次只动一个</em></h2>
+        <p class="sec-lede">
+          前面讲清了每个参数在链条的哪一段。真正难的是手感：动它到底会看到什么。
+          选一个参数拖动滑块，左半是基准，右半是改动后。数字全部来自真实的
+          Portra 400 转 Supra Endura。
+        </p>
+      </div>
+    </div>
+
+    <div class="rv">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:18px 20px;border-bottom:1px solid var(--line)">
+          <div class="seg" id="labSeg" style="margin-bottom:0"></div>
+        </div>
+        <div class="lab-grid">
+          <div class="lab-vis">
+            <div class="beforeafter" id="labBA" style="border-radius:9px">
+              <canvas id="cLab"></canvas>
+              <div class="ba-handle" id="labHandle" style="left:50%"></div>
+              <div class="ba-tag" style="left:10px" id="labTagA">基准</div>
+              <div class="ba-tag" style="right:10px" id="labTagB">改动后</div>
+            </div>
+            <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap" id="labSwatches"></div>
+          </div>
+          <div class="lab-info">
+            <div class="card-t" id="labGroup">FILM</div>
+            <h4 style="font-size:17px;margin:8px 0 10px" id="labName">Exposure EV</h4>
+            <p style="font-size:13px;color:var(--ink-2);line-height:1.7;min-height:100px" id="labDesc"></p>
+            <div class="ctrls" style="margin-top:6px">
+              <div class="ctrl">
+                <label id="labSliderLbl">数值</label>
+                <output id="labVal">0.0</output>
+                <input type="range" id="sLab" min="-2" max="2" step="0.1" value="0">
+              </div>
+            </div>
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-3);line-height:1.65" id="labHint"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 09 PARAMS ============================== -->
+<section class="sec" id="params">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="sec-num">09</div>
+      <div>
+        <h2 class="sec-title">完整参数索引 · <em>按分组查</em></h2>
+        <p class="sec-lede">
+          下面按插件 UI 的实际分组列出全部参数，每条都标了它作用在链条的哪一站，
+          以及「动了它会发生什么」。可以直接搜参数名。
+        </p>
+      </div>
+    </div>
+
+    <div class="pidx-tools rv">
+      <div class="search">
+        <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.6"/><path d="M10.5 10.5 14 14"/></svg>
+        <input type="text" id="pSearch" placeholder="搜索参数名，例如 grain、preflash、printer…">
+      </div>
+      <button class="pill" id="pExpand" style="cursor:pointer">全部展开</button>
+      <span class="pill" id="pCount">0 项</span>
+    </div>
+
+    <div id="pIndex" class="rv" data-d="1"></div>
+  </div>
+</section>
+
+</main>
+
+<!-- ============================== FOOTER ============================== -->
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <div class="sig" style="margin-bottom:14px">数字暗房手册</div>
+        <p style="color:var(--ink-2);font-size:14px;max-width:44ch">
+          这页里的曲线、染料光谱、感光曲线与中性滤色值全部来自
+          <a href="https://github.com/chaert-s/spektrafilm-ofx" target="_blank" rel="noopener">spektrafilm-ofx</a>
+          仓库中的真实 profile 数据；公式与阶段顺序对照
+          <a href="https://spektrafilm.114c.de/technical/" target="_blank" rel="noopener">官方技术白皮书</a>。
+        </p>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink-3);line-height:2;max-width:38ch">
+        <div><span style="color:var(--ink-4)">数据</span> &nbsp;Portra 400 / Supra Endura / Durst 二向色滤片</div>
+        <div><span style="color:var(--ink-4)">模型</span> &nbsp;教学简化版，非逐位复刻</div>
+        <div><span style="color:var(--ink-4)">许可</span> &nbsp;spektrafilm © Andrea Volpato, GPL v3</div>
+      </div>
+    </div>
+    <p style="margin-top:40px;font-size:11.5px;color:var(--ink-4);line-height:1.8;max-width:80ch">
+      说明：页面上的图像与曲线为<b>教学用近似实现</b>，用于解释物理顺序与参数位置，
+      数值不保证与插件逐位一致（真实插件在 GPU 上以 81 个波长采样、2D 可见轨迹 LUT、
+      多层粒子场与完整 DIR 耦合矩阵计算）。请以插件实际输出为准。
+    </p>
+  </div>
+</footer>
+
+<script src="src/data.js"></script>
+<script src="src/sim.js"></script>
+<script src="src/content.js"></script>
+<script src="src/plots.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>
