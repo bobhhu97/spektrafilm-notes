@@ -1,5 +1,7 @@
 # spektrafilm 拆解手册
 
+**在线浏览 → [bobhhu97.github.io/spektrafilm-notes](https://bobhhu97.github.io/spektrafilm-notes/)**
+
 一个单页交互式教学网站，拆解 [spektrafilm OFX](https://github.com/chaert-s/spektrafilm-ofx) 在 DaVinci Resolve 里的成像原理。
 
 页面里跑着一个微型的 spektrafilm 实现：从线性 RGB 出发，经光谱上采样、乳剂曝光、特性曲线显影、光学印片、扫描回 RGB，全流程可交互调参。
