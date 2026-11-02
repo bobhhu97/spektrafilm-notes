@@ -829,22 +829,26 @@ function initPrint() {
     S.redrawPrint = draw;
   }
 
-  const bind = (id, out, key, dec = 0, mul = 1) => {
+  /* affectsSpectrum：这个参数是否改变波长分布。
+     只有滤色会。曝光/预闪/塑形作用在相纸曲线映射上，不改变入射光谱，
+     所以不该触发光谱图重绘（之前无差别重绘，加上抗锯齿抖动，
+     会让人误以为它们在联动）。 */
+  const bind = (id, out, key, dec = 0, mul = 1, affectsSpectrum = false) => {
     const s = $(id); if (!s) return;
     const paint = () => {
       P[key] = +s.value * mul;
       const p = (+s.value - +s.min) / (+s.max - +s.min) * 100;
       s.style.setProperty('--p', p + '%');
       $(out).textContent = dec ? (+s.value).toFixed(dec) : Math.round(+s.value);
-      draw();
+      if (affectsSpectrum) draw();
       if (S.schedulePrintBA) S.schedulePrintBA(true);
     };
     s.addEventListener('input', paint);
     paint();
   };
-  bind('#sC', '#oC', 'c');
-  bind('#sM', '#oM', 'm');
-  bind('#sY', '#oY', 'y');
+  bind('#sC', '#oC', 'c', 0, 1, true);
+  bind('#sM', '#oM', 'm', 0, 1, true);
+  bind('#sY', '#oY', 'y', 0, 1, true);
   bind('#sPEV', '#oPEV', 'ev', 1);
   bind('#sPF', '#oPF', 'pf', 2);
   bind('#sSh', '#oSh', 'sh', 1);

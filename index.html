@@ -316,7 +316,7 @@
       <div class="card" style="padding:0;overflow:hidden">
         <div style="padding:18px 20px 0">
           <div class="card-h" style="margin-bottom:8px">
-            <span class="card-t">印片曝光 · 光谱透射</span>
+            <span class="card-t">光谱透射 · 只受滤色与换底影响</span>
             <div class="seg on-green" id="printModeSeg">
               <button data-m="0" class="on">Filtered</button>
               <button data-m="1">Printer</button>
@@ -344,7 +344,10 @@
         </div>
 
         <div class="wide-foot">
-          <div class="card-t" style="margin-bottom:10px">拖动分割线，看这一组参数改了什么</div>
+          <div class="wide-foot-head">
+            <span class="card-t">这张图看曝光与塑形</span>
+            <span class="card-t" style="font-size:9px">上图的波长分布，这里是最终成片</span>
+          </div>
           <div class="beforeafter" id="printBA" style="border-radius:9px">
             <canvas id="cPrintImg"></canvas>
             <div class="ba-handle" id="printHandle" style="left:50%"></div>
@@ -356,7 +359,9 @@
 
       <div class="ctrl-panel">
         <div class="card">
-          <div class="card-h"><span class="card-t">色彩</span></div>
+          <div class="card-h"><span class="card-t">色彩</span>
+            <span class="card-t" style="font-size:9px;color:var(--w-cyan)">影响光谱图</span>
+          </div>
           <div class="ctrls">
             <div class="ctrl">
               <label>C Filter <em>挡红 → 偏暖</em></label><output id="oC">0</output>
@@ -373,7 +378,9 @@
           </div>
         </div>
         <div class="card">
-          <div class="card-h"><span class="card-t">曝光与塑形</span></div>
+          <div class="card-h"><span class="card-t">曝光与塑形</span>
+            <span class="card-t" style="font-size:9px;color:var(--w-amber)">影响成片</span>
+          </div>
           <div class="ctrls">
             <div class="ctrl">
               <label>Exposure EV <em>印片曝光</em></label><output id="oPEV">0.0</output>
